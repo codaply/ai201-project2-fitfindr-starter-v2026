@@ -13,6 +13,8 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
@@ -36,14 +38,14 @@ def new_session(query: str, wardrobe: dict) -> dict:
     Add fields if you need them.
     """
     return {
-        "query": query,              # what the user typed
-        "parsed": {},                # description / size / max_price you pulled out of it
-        "search_results": [],        # everything search_listings returned
-        "selected_item": None,       # the one you chose — goes into suggest_outfit
-        "wardrobe": wardrobe,        # the user's wardrobe
-        "outfit_suggestion": None,   # what suggest_outfit returned
-        "fit_card": None,            # what create_fit_card returned
-        "error": None,               # set when the run ended early
+        "query": query,
+        "parsed": {},
+        "search_results": [],
+        "selected_item": None,
+        "wardrobe": wardrobe,
+        "outfit_suggestion": None,
+        "fit_card": None,
+        "error": None,
     }
 
 
@@ -107,9 +109,80 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     """
     session = new_session(query, wardrobe)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
-    return session
+    price_pattern = (
+        r"\b(?:under|below|max(?:imum)?(?:\s+price)?|up\s+to)"
+        r"\s*\$?\s*(\d+(?:\.\d+)?)\b"
+    )
+    size_pattern = (
+        r"\bsize\s+([a-z0-9]+(?:[/-][a-z0-9]+)*)\b"
+    )
+
+    price_match = re.search(
+        price_pattern, query, flags=re.IGNORECASE
+    )
+    size_match = re.search(
+        size_pattern, query, flags=re.IGNORECASE
+    )
+
+    description = re.sub(
+        price_pattern, " ", query, flags=re.IGNORECASE
+    )
+    description = re.sub(
+        size_pattern, " ", description, flags=re.IGNORECASE
+    )
+    description = re.sub(
+        r"^\s*(?:looking\s+for|find\s+me|find|show\s+me)\s+",
+        "",
+        description,
+        flags=re.IGNORECASE,
+    )
+    description = re.sub(
+        r"\s+", " ", description.replace(",", " ")
+    ).strip()
+
+    session["parsed"] = {
+        "description": description,
+        "size": size_match.group(1) if size_match else None,
+        "max_price": float(price_match.group(1)) if price_match else None,
+    }
+
+    stage = "search"
+    count = 0
+
+    while True:
+        count += 1
+        trace.check_iterations(count)
+
+        if stage == "search":
+            session["search_results"] = search_listings(
+                description=session["parsed"]["description"],
+                size=session["parsed"]["size"],
+                max_price=session["parsed"]["max_price"],
+            )
+
+            if not session["search_results"]:
+                session["error"] = (
+                    "No listings matched your request. Try broader clothing "
+                    "keywords, a different size, or a higher maximum price."
+                )
+                return session
+
+            session["selected_item"] = session["search_results"][0]
+            stage = "outfit"
+
+        elif stage == "outfit":
+            session["outfit_suggestion"] = suggest_outfit(
+                new_item=session["selected_item"],
+                wardrobe=session["wardrobe"],
+            )
+            stage = "fit_card"
+
+        elif stage == "fit_card":
+            session["fit_card"] = create_fit_card(
+                outfit=session["outfit_suggestion"],
+                new_item=session["selected_item"],
+            )
+            return session
 
 
 # ── running it directly ───────────────────────────────────────────────────────
@@ -117,11 +190,17 @@ def run_agent(query: str, wardrobe: dict) -> dict:
 def _show(session: dict) -> None:
     if session["error"]:
         print(f"  stopped: {session['error']}")
-        print(f"  fit_card is {session['fit_card']!r} — it should still be None here")
+        print(
+            f"  fit_card is {session['fit_card']!r} "
+            "— it should still be None here"
+        )
         return
 
     item = session["selected_item"] or {}
-    print(f"  found:    {item.get('title')} — ${item.get('price')} on {item.get('platform')}")
+    print(
+        f"  found:    {item.get('title')} "
+        f"— ${item.get('price')} on {item.get('platform')}"
+    )
     print(f"  outfit:   {session['outfit_suggestion']}")
     print(f"  fit card: {session['fit_card']}")
 
