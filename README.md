@@ -9,18 +9,21 @@ FitFindr helps users find clothing by description, size, and budget. It searches
 ## Tool Inventory
 
 ### search_listings(description, size, max_price)
+
 - **Purpose:** Searches local listings and ranks matches by keyword overlap across title, description, category, and style tags.
 - **Inputs:** `description` (`str`), `size` (`str | None`, default `None`), `max_price` (`float | None`, default `None`). `None` skips the corresponding filter. Size matching is case-insensitive and accepts slash-separated labels: `M` matches `S/M`, but `S` does not match `US 9` and `L` does not match `XL`. The price ceiling is inclusive.
 - **Output:** A list of complete listing dictionaries, highest keyword score first, limited to `config.SEARCH_RESULT_LIMIT`. Fields include `id`, `title`, `description`, `category`, `style_tags`, `size`, `condition`, `price`, `colors`, `brand`, and `platform`.
 - **Empty case:** Returns an empty list (`[]`) when no listings match or the description contains no keywords.
 
 ### suggest_outfit(new_item, wardrobe)
+
 - **Purpose:** Suggests one or two outfits using the selected item and the user's wardrobe.
 - **Inputs:** `new_item` (`dict` containing the selected listing), `wardrobe` (`dict` containing an `items` list).
 - **Output:** A non-empty string with outfit suggestions naming pieces from the provided wardrobe.
 - **Empty case:** When the wardrobe's `items` list is empty, asks the model for general styling advice without claiming the user owns the suggested pieces. If the model returns blank text, raises `ValueError`.
 
 ### create_fit_card(outfit, new_item)
+
 - **Purpose:** Writes a short, postable caption about the selected item and outfit.
 - **Inputs:** `outfit` (`str` returned by `suggest_outfit`), `new_item` (`dict` containing the selected listing).
 - **Output:** A string requested to contain two to four sentences, mentioning the item, its price, and its platform once each and describing the outfit's vibe. These content requirements are checked through evaluation rather than enforced by a validator.
@@ -39,6 +42,8 @@ FitFindr helps users find clothing by description, size, and budget. It searches
 The loop uses search, outfit, and fit-card stages. It calls `trace.check_iterations(count)` on each iteration to enforce the configured iteration limit.
 
 ## Sample Run
+
+The outfit outputs below have been cleaned for readability by removing non-rendering asterisks and replacing asterisk bullets with hyphens. Their wording is unchanged.
 
 ### Setup
 
@@ -63,22 +68,22 @@ Output:
   found:    Y2K Baby Tee — Butterfly Print — $18.0 on depop
   outfit:   Here are two practical outfit suggestions featuring your Y2K Butterfly Print Baby Tee and pieces from your wardrobe:
 
-**Outfit 1: Y2K Streetwear Contrast**
-*   **Selected Item:** Y2K Baby Tee — Butterfly Print
-*   **Wardrobe Pieces Used:**
-    *   Baggy straight-leg jeans, dark wash (w_001)
-    *   Vintage black denim jacket (w_006)
-    *   Chunky white sneakers (w_007)
-    *   Black crossbody bag (w_010)
-*   **Why it works:** Pairing the fitted, cropped silhouette of the baby tee with high-waisted baggy jeans creates a balanced Y2K streetwear proportion. Layering the slightly cropped black denim jacket adds edge, while the chunky white sneakers and crossbody bag tie the casual, everyday look together.
+Outfit 1: Y2K Streetwear Contrast
+-   Selected Item: Y2K Baby Tee — Butterfly Print
+-   Wardrobe Pieces Used:
+    -   Baggy straight-leg jeans, dark wash (w_001)
+    -   Vintage black denim jacket (w_006)
+    -   Chunky white sneakers (w_007)
+    -   Black crossbody bag (w_010)
+-   Why it works: Pairing the fitted, cropped silhouette of the baby tee with high-waisted baggy jeans creates a balanced Y2K streetwear proportion. Layering the slightly cropped black denim jacket adds edge, while the chunky white sneakers and crossbody bag tie the casual, everyday look together.
 
-**Outfit 2: Casual Earth-Tone Mix**
-*   **Selected Item:** Y2K Baby Tee — Butterfly Print
-*   **Wardrobe Pieces Used:**
-    *   Wide-leg khaki trousers (w_002)
-    *   Brown leather belt (w_009)
-    *   Chunky white sneakers (w_007)
-*   **Why it works:** The pink and purple tones in the butterfly graphic pop against neutral bottoms. Tucking the baby tee into the wide-leg khaki trousers and accessorizing with the brown leather belt pulls the outfit together for an easy, slightly retro daytime aesthetic, finished off with comfortable white sneakers.
+Outfit 2: Casual Earth-Tone Mix
+-   Selected Item: Y2K Baby Tee — Butterfly Print
+-   Wardrobe Pieces Used:
+    -   Wide-leg khaki trousers (w_002)
+    -   Brown leather belt (w_009)
+    -   Chunky white sneakers (w_007)
+-   Why it works: The pink and purple tones in the butterfly graphic pop against neutral bottoms. Tucking the baby tee into the wide-leg khaki trousers and accessorizing with the brown leather belt pulls the outfit together for an easy, slightly retro daytime aesthetic, finished off with comfortable white sneakers.
   fit card: Scored this Y2K butterfly print baby tee on Depop for just $18, and it brings the ultimate early 2000s streetwear energy. I'm pairing the fitted crop with baggy dark wash denim, chunky white sneakers, and a black denim jacket for a balanced, edgy vibe.
 
 === A query it can't ===
@@ -119,26 +124,26 @@ Output:
 Here are two outfit suggestions incorporating the selected Vintage Levi's 501 Jeans and pieces from your wardrobe:
 
 ### Outfit 1: Casual Streetwear
-* **Selected Item:** Vintage Levi's 501 Jeans — Medium Wash
-* **Wardrobe Pieces Used:**
-  * White ribbed tank top (`w_003`)
-  * Black cropped zip hoodie (`w_005`)
-  * Chunky white sneakers (`w_007`)
-  * Black crossbody bag (`w_010`)
+- Selected Item: Vintage Levi's 501 Jeans — Medium Wash
+- Wardrobe Pieces Used:
+  - White ribbed tank top (`w_003`)
+  - Black cropped zip hoodie (`w_005`)
+  - Chunky white sneakers (`w_007`)
+  - Black crossbody bag (`w_010`)
 
-**Look Details:** Pair the medium wash 501s with the fitted white tank top as a base. Layer the black cropped zip hoodie on top for a balanced silhouette between the relaxed jeans and the cropped layer. Finish the look with chunky white sneakers and the black crossbody bag for an effortless, everyday streetwear vibe.
+Look Details: Pair the medium wash 501s with the fitted white tank top as a base. Layer the black cropped zip hoodie on top for a balanced silhouette between the relaxed jeans and the cropped layer. Finish the look with chunky white sneakers and the black crossbody bag for an effortless, everyday streetwear vibe.
 
 ---
 
 ### Outfit 2: Vintage Layered Denim
-* **Selected Item:** Vintage Levi's 501 Jeans — Medium Wash
-* **Wardrobe Pieces Used:**
-  * White ribbed tank top (`w_003`)
-  * Vintage black denim jacket (`w_006`)
-  * Black combat boots (`w_008`)
-  * Brown leather belt (`w_009`)
+- Selected Item: Vintage Levi's 501 Jeans — Medium Wash
+- Wardrobe Pieces Used:
+  - White ribbed tank top (`w_003`)
+  - Vintage black denim jacket (`w_006`)
+  - Black combat boots (`w_008`)
+  - Brown leather belt (`w_009`)
 
-**Look Details:** Tuck the white ribbed tank into the jeans and cinch the waist with the brown leather belt. Add the slightly cropped vintage black denim jacket for a denim-on-denim contrast against the blue wash. Complete the outfit with the black combat boots to lean into a classic, grunge-inflected aesthetic.
+Look Details: Tuck the white ribbed tank into the jeans and cinch the waist with the brown leather belt. Add the slightly cropped vintage black denim jacket for a denim-on-denim contrast against the blue wash. Complete the outfit with the black combat boots to lean into a classic, grunge-inflected aesthetic.
 ```
 
 ### Tool 3: create_fit_card
@@ -186,18 +191,18 @@ python -c "from tools import suggest_outfit; from utils.data_loader import get_e
 ```text
 Here are two versatile outfit ideas styled around vintage medium-wash Levi's 501 jeans:
 
-**1. Casual Everyday Streetwear**
-*   **Top:** A relaxed-fit, heavyweight white crewneck t-shirt or a vintage grey heather hoodie.
-*   **Footwear:** Classic retro sneakers like Nike Killshots, Adidas Sambas, or New Balance 550s.
-*   **Accessories:** A simple black leather belt and a canvas tote bag.
-*   *Why it works:* This is a timeless, effortless combination that leans into the classic Americana and streetwear heritage of the 501 fit.
+1. Casual Everyday Streetwear
+-   Top: A relaxed-fit, heavyweight white crewneck t-shirt or a vintage grey heather hoodie.
+-   Footwear: Classic retro sneakers like Nike Killshots, Adidas Sambas, or New Balance 550s.
+-   Accessories: A simple black leather belt and a canvas tote bag.
+-   Why it works: This is a timeless, effortless combination that leans into the classic Americana and streetwear heritage of the 501 fit.
 
-**2. Elevated Smart-Casual**
-*   **Top:** A crisp, oversized button-down shirt in light blue or classic white, worn either tucked in or open over a fitted white tank top.
-*   **Outerwear (Optional):** An unstructured black or camel blazer to add a touch of polish.
-*   **Footwear:** Black leather loafers or pointed-toe ankle boots.
-*   **Accessories:** A minimalist silver or gold wristwatch and a structured leather shoulder bag.
-*   *Why it works:* Pairing structured, tailored pieces with vintage denim creates a high-low contrast that feels modern and chic.
+2. Elevated Smart-Casual
+-   Top: A crisp, oversized button-down shirt in light blue or classic white, worn either tucked in or open over a fitted white tank top.
+-   Outerwear (Optional): An unstructured black or camel blazer to add a touch of polish.
+-   Footwear: Black leather loafers or pointed-toe ankle boots.
+-   Accessories: A minimalist silver or gold wristwatch and a structured leather shoulder bag.
+-   Why it works: Pairing structured, tailored pieces with vintage denim creates a high-low contrast that feels modern and chic.
 ```
 
 ### Session Handoff Check
