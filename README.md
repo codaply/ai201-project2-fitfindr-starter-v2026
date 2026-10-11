@@ -14,26 +14,16 @@
 > ```
 >
 > All three tools are stubs, so that last command will do nothing useful yet.
-> That's the starting position.
->
+> That's the starting positiongit status --short>
 > **The rest of this file is your submission.** Fill it in as you go.
 
 ---
+SETUP:
 
-<!-- ─────────────────────────────────────────────────────────────────────────
-     HOW TO USE THIS FILE
+Python version 3.13.15
+The starter query printed "The planning loop isn't built yet" and made O model calls.
+test.py passed.
 
-     This is your submission. Fill each section in as you finish the milestone
-     it belongs to — don't leave it all to the end.
-
-     Unit 3 asks for the first five sections. Unit 4 adds the five below them.
-     Leave the unit 4 sections alone until then; they're here so you know
-     what's coming.
-
-     Everything is pasted as TEXT. No screenshots, no images, no video links.
-     A typed block of output gets full credit; a picture of the same output
-     gets none.
-     ───────────────────────────────────────────────────────────────────────── -->
 
 <!-- ═══════════════════════ UNIT 3 — THE BUILD ═══════════════════════ -->
 
@@ -47,38 +37,23 @@
 
 ## Tool Inventory
 
-<!-- Four lines per tool. This is worth 2 points and it's the single most
-     common place students lose them.
+### search_listings(description, size, max_price)
+- **Purpose:** Searches listings for clothing matching the requested description, size, and budget.
+- **Inputs:** `description` (`str`), `size` (`str`), `max_price` (`float`).
+- **Output:** A list of listing dictionaries containing fields such as `title`, `description`, `size`, `price`, and `platform`.
+- **Empty case:** Returns an empty list (`[]`) when no listings match.
 
-     "Returns a list" earns NOTHING. The description has to say what is IN
-     the list.
+### suggest_outfit(new_item, wardrobe)
+- **Purpose:** Suggests one or two outfits using the selected item and the user's wardrobe.
+- **Inputs:** `new_item` (`dict` containing the selected listing), `wardrobe` (`dict containing an `items` list).
+- **Output:** A non-empty string with outfit suggestions naming pieces from the user's wardrobe.
+- **Empty case:** When the wardrobe's `items` list is empty, returns a non-empty string with general styling advice.
 
-     The empty case isn't optional either — it's the thing your loop branches
-     on, and if you don't decide it here you'll discover it as a crash in
-     Milestone 5. -->
-
-### `search_listings`
-
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
-
-### `suggest_outfit`
-
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
-
-### `create_fit_card`
-
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
-
----
+### create_fit_card(outfit, new_item)
+- **Purpose:** Writes a short, postable caption about the selected item and outfit.
+- **Inputs:** `outfit` (`str` returned by `suggest_outfit`), `new_item` (`dict containing the selected listing).
+- **Output:** A two-to-four sentence caption mentioning the item, price, and platform once each and describing the outfit's vibe.
+- **Empty case:** If `outfit` is empty or whitespace-only, returns a descriptive message rather than raising an error.
 
 ## Planning Loop
 
