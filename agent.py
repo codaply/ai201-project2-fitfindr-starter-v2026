@@ -1,43 +1,15 @@
-"""
-The FitFindr planning loop.
-
-This is the file that makes FitFindr an agent rather than a script. It decides
-which tool to run next based on what the last one returned.
-
-If your loop calls all three tools no matter what comes back, you have a list
-of function calls. A loop looks at the last result before it picks the next
-step. **That branch is the graded part of this unit.**
-
-Build and test your three tools in `tools.py` first. Then come here.
-
-    python agent.py          runs both example paths below
-"""
+"""The FitFindr planning loop."""
 
 import re
 
-import config
 import trace
-from tools import suggest_outfit, create_fit_card
-from mcp_client import call_tool
 from generate import ModelUnavailable
+from mcp_client import call_tool
+from tools import suggest_outfit, create_fit_card
 
-
-# ── session state ─────────────────────────────────────────────────────────────
 
 def new_session(query: str, wardrobe: dict) -> dict:
-    """
-    A fresh session for one user interaction.
-
-    The session is the single source of truth for a run. Every tool result goes
-    in here, and the next tool reads it back out.
-
-    You could pass values straight from one call to the next. It would work,
-    and you would not be able to test it — you can't print a variable you have
-    already overwritten. Going through the session is what makes the state
-    visible, and unit 4 has you write a criterion about exactly that.
-
-    Add fields if you need them.
-    """
+    """Create session state for one run."""
     return {
         "query": query,
         "parsed": {},
@@ -50,73 +22,16 @@ def new_session(query: str, wardrobe: dict) -> dict:
     }
 
 
-# ── planning loop ─────────────────────────────────────────────────────────────
-
 def run_agent(query: str, wardrobe: dict) -> dict:
-    """
-    Run the loop once and return the finished session.
-
-    Args:
-        query:    what the user asked for, in plain language
-                  (e.g. "vintage graphic tee under $30, size M").
-        wardrobe: a wardrobe dict — get_example_wardrobe() or
-                  get_empty_wardrobe() from utils/data_loader.py.
-
-    Returns:
-        The session dict. **Check session["error"] first** — if it isn't None,
-        the run ended early and the later fields will still be None.
-
-    ─────────────────────────────────────────────────────────────────────────
-    TODO — build this, following the branch rule you wrote in Milestone 2.
-
-      1. Start a session with new_session().
-
-      2. Count the times round the loop, and call trace.check_iterations(count)
-         on each one before you go again. It raises when the count passes
-         MAX_ITERATIONS in config.py — see trace.py.
-
-      3. Parse the query into a description, a size, and a max_price. Regex,
-         string splitting, or asking the model are all fine — say which you
-         chose in your README. Put the result in session["parsed"].
-
-      4. Call search_listings() with what you parsed.
-         Put the results in session["search_results"].
-
-         ⚠️ THIS IS THE BRANCH. If nothing came back:
-              - put a message in session["error"] saying what the user could
-                change — "No results" is not that message
-              - return the session
-              - do NOT call suggest_outfit with nothing
-
-      5. Choose an item — the first result is fine. Put it in
-         session["selected_item"].
-
-      6. Call suggest_outfit() with the selected item and the wardrobe.
-         Put the result in session["outfit_suggestion"].
-
-      7. Call create_fit_card() with the outfit and the item.
-         Put the result in session["fit_card"].
-
-      8. Return the session.
-
-    ─────────────────────────────────────────────────────────────────────────
-    IN UNIT 4 you come back and add two things:
-
-      • Trace calls. One per step. `trace.step("search_listings", inputs=...,
-        returned=...)` — see trace.py. Your README needs the output.
-
-      • A handler for ModelUnavailable, so a bad key produces a message rather
-        than a stack trace. The import is already at the top of this file.
-    """
+    """Run the tools in order, stopping when a branch requires it."""
     session = new_session(query, wardrobe)
+    trace.start_trace()
 
     price_pattern = (
         r"\b(?:under|below|max(?:imum)?(?:\s+price)?|up\s+to)"
         r"\s*\$?\s*(\d+(?:\.\d+)?)\b"
     )
-    size_pattern = (
-        r"\bsize\s+([a-z0-9]+(?:[/-][a-z0-9]+)*)\b"
-    )
+    size_pattern = r"\bsize\s+([a-z0-9]+(?:[/-][a-z0-9]+)*)\b"
 
     price_match = re.search(
         price_pattern, query, flags=re.IGNORECASE
@@ -147,6 +62,13 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         "max_price": float(price_match.group(1)) if price_match else None,
     }
 
+    trace.step(
+        "parse_query",
+        inputs=query,
+        returned=str(session["parsed"]),
+        note="Extract description, size, and maximum price.",
+    )
+
     stage = "search"
     count = 0
 
@@ -164,6 +86,17 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 },
             )
 
+            trace.step(
+                "search_listings (via MCP)",
+                inputs=str(session["parsed"]),
+                returned=session["search_results"],
+                note=(
+                    "No matches; stop before suggest_outfit."
+                    if not session["search_results"]
+                    else "Matches found; choose the first ranked result."
+                ),
+            )
+
             if not session["search_results"]:
                 session["error"] = (
                     "No listings matched your request. Try broader clothing "
@@ -172,26 +105,96 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                 return session
 
             session["selected_item"] = session["search_results"][0]
+
+            trace.step(
+                "select_item",
+                returned=session["selected_item"],
+                note=(
+                    f"Saved item ID {session['selected_item']['id']} "
+                    "in session for the remaining tools."
+                ),
+            )
+
             stage = "outfit"
 
         elif stage == "outfit":
-            session["outfit_suggestion"] = suggest_outfit(
-                new_item=session["selected_item"],
-                wardrobe=session["wardrobe"],
+            outfit_inputs = {
+                "new_item": session["selected_item"],
+                "wardrobe": session["wardrobe"],
+            }
+
+            trace.step(
+                "suggest_outfit — call",
+                inputs=str(outfit_inputs),
+                note=(
+                    f"Session item ID: {session['selected_item']['id']}; "
+                    f"tool input item ID: {outfit_inputs['new_item']['id']}. "
+                    "Use general styling advice if the wardrobe is empty."
+                ),
             )
+
+            try:
+                session["outfit_suggestion"] = suggest_outfit(
+                    **outfit_inputs
+                )
+            except ModelUnavailable as exc:
+                session["error"] = str(exc)
+
+                trace.step(
+                    "suggest_outfit — error",
+                    returned=session["error"],
+                    note="Stop before create_fit_card.",
+                )
+                return session
+
+            trace.step(
+                "suggest_outfit — result",
+                returned=session["outfit_suggestion"],
+                note="Outfit advice received; proceed to create_fit_card.",
+            )
+
             stage = "fit_card"
 
         elif stage == "fit_card":
-            session["fit_card"] = create_fit_card(
-                outfit=session["outfit_suggestion"],
-                new_item=session["selected_item"],
+            fit_card_inputs = {
+                "outfit": session["outfit_suggestion"],
+                "new_item": session["selected_item"],
+            }
+
+            trace.step(
+                "create_fit_card — call",
+                inputs=str(fit_card_inputs),
+                note=(
+                    f"Use saved item ID {session['selected_item']['id']} "
+                    "and the outfit advice returned by suggest_outfit."
+                ),
             )
+
+            try:
+                session["fit_card"] = create_fit_card(
+                    **fit_card_inputs
+                )
+            except ModelUnavailable as exc:
+                session["error"] = str(exc)
+
+                trace.step(
+                    "create_fit_card — error",
+                    returned=session["error"],
+                    note="Stop and return the model error message.",
+                )
+                return session
+
+            trace.step(
+                "create_fit_card — result",
+                returned=session["fit_card"],
+                note="Fit card received; run complete.",
+            )
+
             return session
 
 
-# ── running it directly ───────────────────────────────────────────────────────
-
 def _show(session: dict) -> None:
+    """Print a session when this file is run directly."""
     if session["error"]:
         print(f"  stopped: {session['error']}")
         print(
@@ -201,6 +204,7 @@ def _show(session: dict) -> None:
         return
 
     item = session["selected_item"] or {}
+
     print(
         f"  found:    {item.get('title')} "
         f"— ${item.get('price')} on {item.get('platform')}"
