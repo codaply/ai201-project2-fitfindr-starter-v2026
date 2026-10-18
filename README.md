@@ -286,3 +286,287 @@ These are development checks, not the five-trial acceptance evaluation for Unit 
 - **What I asked for:** I shared repeated caption outputs and the configuration to understand why the wording stayed the same.
 - **What came back:** ChatGPT explained that caching was enabled by default and showed how to disable it for an individual terminal command using `AI201_CACHE=0`.
 - **What I changed:** I reran the caption tool three times with caching disabled without changing `config.py`. The outputs showed some variation, but also repeated wording. I recorded that result instead of assuming every fresh response would be different.
+
+## Unit 4: MCP and Failure Tests
+
+
+I exposed only `search_listings` through FastMCP in `mcp_server.py`. Its typed inputs are `description: str`, `size: str | None`, and `max_price: float | None`. The description documents dollars, the inclusive price ceiling, size matching, ranked results, and the empty-list case. `agent.py::run_agent` now uses `mcp_client.call_tool`; the other two tools remain direct calls. The wrapper delegates to the existing search implementation.
+
+`python mcp_client.py` listed the registered tool and its expected input types. The normal agent query still selected `lst_002`, the $18 Depop butterfly tee, and returned outfit advice and a fit card. Those initial model responses were cached, so that check demonstrated wiring rather than fresh model behavior.
+
+I completed the required features without adding stretch features.
+
+### Empty search
+
+Command:
+
+```bash
+python app.py ask 'zzzxxyyqq'
+```
+
+Actual output before trace instrumentation:
+
+```text
+No listings matched your request. Try broader clothing keywords, a different size, or a higher maximum price.
+
+0 model calls this session
+```
+
+The existing empty-search branch supplied actionable advice. The repeated evaluation traces subsequently confirmed that `suggest_outfit` was never called on this path.
+
+### Empty wardrobe
+
+Command:
+
+```bash
+python app.py ask 'vintage graphic tee under $30' --empty-wardrobe
+```
+
+Actual output excerpt:
+
+```text
+(running with an empty wardrobe)
+
+Here are two ways to style a Y2K-inspired butterfly print baby tee:
+
+**Outfit 1: Retro Streetwear**
+*   **Bottoms:** Mid-rise or low-rise baggy cargo pants in khaki or light wash denim to balance the fitted silhouette of the crop top.
+*   **Footwear:** Chunky platform sneakers or retro skate shoes.
+*   **Accessories:** A small nylon shoulder bag and a beaded choker or silver chain necklace.
+```
+
+The tool returned general styling advice rather than claiming these were saved wardrobe pieces. The run completed with a fit card and two real model calls (634 prompt tokens and 247 output tokens). This behavior already existed; no new empty-wardrobe handler was needed.
+
+### Model unavailable
+
+Changing the search wording initially failed to trigger this condition because the same selected item and wardrobe produced cached model prompts. A later uncached request still succeeded; the exact source of the valid credential was not established. I then supplied an explicitly invalid credential for one process, leaving the saved key unchanged:
+
+```bash
+env AI201_CACHE=0 GEMINI_API_KEY=invalid-test-key python app.py ask 'graphic tee'
+```
+
+Before adding the handler, the output included:
+
+```text
+1 model calls this session
+
+ModelUnavailable: The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+```
+
+After adding `ModelUnavailable` handlers around both model-calling tools in `agent.py`, the same command returned:
+
+```text
+The model rejected your API key. Check GEMINI_API_KEY in your .env file, or create a fresh key at aistudio.google.com.
+
+1 model calls this session
+```
+
+This test triggered the error in `suggest_outfit`. I also added a handler to `create_fit_card`, but did not test a failure at that later step separately.
+
+## Evaluation Method
+
+The original five criteria and targets in `criteria.md` remain unchanged. Matching scenarios use `vintage graphic tee under $30` with the example wardrobe. The empty-search scenario uses `zzzxxyyqq`. Each criterion has its own scenario and five trials in each phase; all matching trials selected `lst_002`, the $18 Depop butterfly tee.
+
+I first ran 25 before and 25 after trials using `run_eval.py`. That timer covered only `run_agent()`, so it did not fully measure criterion 5. Those reports remain as supplementary evidence: [initial before](results/run_2026-10-17_195610_before~.md) and [initial after](results/run_2026-10-17_215909_after.md). Their function-interval runtime results were 4/5 in each phase; these are not the final end-to-end verdicts.
+
+I corrected the evaluation using `run_eval_cli.py`, which launches the actual `app.py ask` command and measures from immediately before process launch until the command exits and all output is collected. This includes Python startup, imports, wardrobe loading, MCP startup, model calls, retries, waiting, and final output. It does not include a person's typing time. Both corrected phases used this identical method, five scenarios, five trials each, and `AI201_CACHE=0`. I restored the original prompt for the corrected before phase, then restored the same 120-word improvement for the corrected after phase.
+
+Each corrected trial runs in a fresh process, matching separate CLI submissions. This resets the adapter's in-process pacing history; provider quota limits still apply and caused observed retries. The final comparison uses the two corrected command evaluations. Their timing results are kept separate from the earlier function evaluations. Model `gemini-3.5-flash-lite`, temperature 0.9, data, targets, and request-limit settings were unchanged. There were 100 evaluation trials in total: 50 initial and 50 corrected.
+
+## Run Log — Before
+
+Final baseline evidence: [complete command-level before report](results/cli_2026-10-17_221924_before_cli.md).
+
+| Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1. Matching query completes all three tools and returns a fit card | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before suggest_outfit and names what to change | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Session item ID matches item received by suggest_outfit | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Caption includes correct price and platform | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Uncached completed fit card within five seconds, including waiting | 4 of 5 | FAIL | FAIL | PASS | PASS | PASS | MISSED (3/5) |
+
+| Criterion 5 command time | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 |
+|---|---|---|---|---|---|
+| Seconds | 39.525895 | 61.533515 | 3.817321 | 3.093869 | 3.234040 |
+
+### Actual output examples
+
+#### Criterion 1 — Try 1
+
+Producer: `tools.py::create_fit_card`, called by `agent.py::run_agent` and printed by `app.py::_ask_one`.
+
+```text
+Fit card: Channeling major early-2000s energy with this pink, white, and purple butterfly print Y2K Baby Tee. I scored it on Depop for just $18.00, and it's giving the ultimate fitted streetwear contrast when paired with baggy denim and chunky sneakers.
+```
+
+#### Criterion 2 — Try 1
+
+Producer: `agent.py::run_agent` empty-search branch, printed by `app.py::_ask_one`.
+
+```text
+No listings matched your request. Try broader clothing keywords, a different size, or a higher maximum price.
+```
+
+#### Criterion 3 — Try 1
+
+Producer: `agent.py::run_agent`, tracing the actual dictionary passed to `suggest_outfit`.
+
+```text
+→    Session item ID: lst_002; tool input item ID: lst_002. Use general styling advice if the wardrobe is empty.
+```
+
+#### Criterion 4 — Try 1
+
+Producer: `tools.py::create_fit_card`, printed by `app.py::_ask_one`.
+
+```text
+Fit card: Channeling major Y2K streetwear energy with this adorable butterfly print baby tee. I scored it on Depop for just $18.00 and love styling it fitted and cropped against baggy denim.
+```
+
+#### Criterion 5 — Try 1
+
+Producer: `run_eval_cli.py::main` for elapsed time and `tools.py::create_fit_card` for the caption.
+
+```text
+- Elapsed seconds: 39.525895
+  Fit card: Channeling major Y2K streetwear energy with this fitted butterfly print baby tee. I found it on depop for just $18.00 and styled it with baggy dark wash jeans and chunky sneakers for that classic 2000s contrast.
+```
+
+## Verdicts and Diagnoses
+
+1. **MET before and after (5/5 against 4/5).** Every criterion-1 trace shows MCP search, outfit generation, and caption generation, followed by a non-empty completed fit card. Exit code alone was not used as proof: actual outputs were checked.
+2. **MET before and after (5/5 against 5/5).** Every impossible-query trace ends after the empty MCP search, with no outfit-tool call. Each run prints advice naming keywords, size, and maximum price as changes to try, and reports zero model calls.
+3. **MET before and after (5/5 against 5/5).** Every criterion-3 trace records session ID `lst_002` matching the actual `new_item` argument ID. A slow run still passes this state criterion because it has no speed requirement.
+4. **MET before and after (5/5 against 5/5).** Each full criterion-4 caption contains the selected listing's $18 price and Depop platform. `$18`, `$18.0`, and `$18.00` are the same monetary value; capitalization does not change the platform identity.
+5. **MISSED before (3/5 against 4/5); MET after (4/5 against 4/5).** All timed runs returned completed fit cards. The full command times determine the verdict, including retry waiting. The following identifies every failed runtime trial.
+
+| Phase / failed try | Tool and trace step | Mechanism |
+|---|---|---|
+| Before, criterion 5 try 1 — 39.525895 s | `create_fit_card`, between steps 6 and 7 | Provider rate limiting caused `generate()` to retry after an announced 36-second wait. |
+| Before, criterion 5 try 2 — 61.533515 s | `suggest_outfit`, between steps 4 and 5 | Provider rate limiting caused `generate()` to retry after an announced 57-second wait. |
+| After, criterion 5 try 3 — 96.367196 s | Both model tools, between steps 4–5 and 6–7 | Provider rate limiting caused an announced 34-second wait during outfit generation and a 59-second wait during caption generation. |
+
+The recurring issue is request quota and retry delay, not search correctness, session handoff, or an absent caption. Criterion 3 try 4 also took 69.586022 seconds before and 81.311702 seconds after, with provider retries, but the handoff criterion still passed. These are not additional failed runtime-criterion trials because each criterion was scored using its designated five scenarios.
+
+Criteria 1–4 passed, but all matching tests selected one item. This limits the strength of the conclusion. The next criterion I would tighten is price/platform accuracy across five distinct listings and platforms where available. I have not retroactively changed these criteria or results.
+
+## Loop Trace
+
+The following trace is from criterion 1, try 1 of the corrected before test. The trace formatter shortens long values. The report contains the full outfit advice and caption. Each note explains the next step in the code.
+```text
+[1] parse_query
+      in:  vintage graphic tee under $30
+      out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      →    Extract description, size, and maximum price.
+[2] search_listings (via MCP)
+      in:  {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+      out: 10 items: Y2K Baby Tee — Butterfly Print, Graphic Tee — 2003 Tour Bootleg Style, Vintage Band Tee — Faded Grey … +7 more
+      →    Matches found; choose the first ranked result.
+[3] select_item
+      out: Y2K Baby Tee — Butterfly Print ($18.0, depop)
+      →    Saved item ID lst_002 in session for the remaining tools.
+[4] suggest_outfit — call
+      in:  {'new_item': {'id': 'lst_002', 'title': 'Y2K Baby Tee — Butterfly Print', 'description': 'Super cute early 200…
+      →    Session item ID: lst_002; tool input item ID: lst_002. Use general styling advice if the wardrobe is empty.
+[5] suggest_outfit — result
+      out: Here are two practical outfit suggestions featuring your Y2K Baby Tee with Butterfly Print and pieces from you…
+      →    Outfit advice received; proceed to create_fit_card.
+[6] create_fit_card — call
+      in:  {'outfit': 'Here are two practical outfit suggestions featuring your Y2K Baby Tee with Butterfly Print and pie…
+      →    Use saved item ID lst_002 and the outfit advice returned by suggest_outfit.
+[7] create_fit_card — result
+      out: Channeling major early-2000s energy with this pink, white, and purple butterfly print Y2K Baby Tee. I scored i…
+      →    Fit card received; run complete.
+```
+
+## The Improvement
+
+The one functional improvement was a change to the system prompt in `tools.py::suggest_outfit`: request no more than 120 words total and keep each outfit explanation brief. The original prompt asked only for clear, non-empty text. The search implementation and fit-card prompt were unchanged. Required MCP wiring, failure handlers, traces, and measurement instrumentation were in place before each baseline.
+
+The initial outputs contained lengthy outfit explanations passed into the second sequential model call. I tested whether limiting this text would reduce generation work and downstream prompt size. I expected shorter advice to reduce the work in both model calls. This would not remove quota waits or reduce the number of calls. The code requests the word limit but does not enforce it.
+
+### Run Log — After
+
+Final improvement evidence: [complete command-level after report](results/cli_2026-10-17_222613_after_cli.md).
+
+| Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
+|---|---|---|---|---|---|---|---|
+| 1. Matching query completes all three tools and returns a fit card | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. Impossible query stops before suggest_outfit and names what to change | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. Session item ID matches item received by suggest_outfit | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Caption includes correct price and platform | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Uncached completed fit card within five seconds, including waiting | 4 of 5 | PASS | PASS | FAIL | PASS | PASS | MET (4/5) |
+
+| Criterion 5 command time | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 |
+|---|---|---|---|---|---|
+| Seconds | 2.819271 | 2.872902 | 96.367196 | 3.087146 | 2.789907 |
+
+### Actual output examples
+
+#### Criterion 1 — Try 1
+
+Producer: `tools.py::create_fit_card`, called by `agent.py::run_agent` and printed by `app.py::_ask_one`.
+
+```text
+Fit card: Channeling pure nostalgic streetwear today with this butterfly graphic baby tee layered under a vintage black denim jacket and baggy dark wash jeans. Finished off with chunky white sneakers, it's the ultimate effortless 2000s look. Snagged this find on Depop for just $18.00!
+```
+
+#### Criterion 2 — Try 1
+
+Producer: `agent.py::run_agent` empty-search branch, printed by `app.py::_ask_one`.
+
+```text
+No listings matched your request. Try broader clothing keywords, a different size, or a higher maximum price.
+```
+
+#### Criterion 3 — Try 1
+
+Producer: `agent.py::run_agent`, tracing the actual dictionary passed to `suggest_outfit`.
+
+```text
+→    Session item ID: lst_002; tool input item ID: lst_002. Use general styling advice if the wardrobe is empty.
+```
+
+#### Criterion 4 — Try 1
+
+Producer: `tools.py::create_fit_card`, printed by `app.py::_ask_one`.
+
+```text
+Fit card: Channeling pure 2000s streetwear energy by pairing this fitted crop tee with baggy dark wash jeans and a black denim jacket. It gives the ultimate effortless, nostalgic vibe for casual days. Snagged this butterfly print baby tee on Depop for just $18.00!
+```
+
+#### Criterion 5 — Try 1
+
+Producer: `run_eval_cli.py::main` for elapsed time and `tools.py::create_fit_card` for the caption.
+
+```text
+- Elapsed seconds: 2.819271
+  Fit card: Channeling total early-2000s streetwear energy with this Y2K Streetwear look, balancing a fitted crop silhouette with relaxed denim. I grabbed this butterfly print Y2K Baby Tee on Depop for just $18.00. It's the ultimate casual contrast piece for building effortless everyday outfits.
+```
+
+### Before and After
+
+| Criterion | Target | Before | After |
+|---|---|---|---|
+| 1. Full completion | 4/5 | MET (5/5) | MET (5/5) |
+| 2. Empty-search branch | 5/5 | MET (5/5) | MET (5/5) |
+| 3. Item handoff | 5/5 | MET (5/5) | MET (5/5) |
+| 4. Price/platform | 5/5 | MET (5/5) | MET (5/5) |
+| 5. Full command within five seconds | 4/5 | MISSED (3/5) | MET (4/5) |
+
+The runtime result improved from 3/5 to 4/5. However, the slowest run increased from 61.533515 to 96.367196 seconds. Quota waits occurred in different trials, and model responses vary. These results do not prove that the shorter prompt caused the improved pass count or solved the delays.
+
+In the supplementary initial evaluations, output tokens decreased from 6,411 to 3,479 (45.7%) and prompt tokens from 25,726 to 22,958 (10.8%). Those are aggregate counts across both model tools for that earlier matched pair, not counts from the corrected CLI pair or isolated outfit measurements. Its function-interval pass count stayed 4/5. Together, the evidence supports lower observed text/token usage and an improved final sampled pass count, but not elimination of rate-limit delays.
+
+## What's Still Broken
+
+- **No criterion remains missed in the final after sample, but runtime remains unreliable.** One completed command took 96.367196 seconds because both model tools retried after provider rate limiting. Meeting a 4/5 target does not make that failure disappear. Next I would investigate quota capacity and request scheduling under realistic load. I stopped after the single measured prompt improvement required by this unit.
+- **The improvement did not directly repair the dominant failure mechanism.** A response-length request cannot prevent request-count quota exhaustion. The after result therefore does not demonstrate a causal fix for quota delays.
+- **Coverage is narrow.** All matching tests selected `lst_002`. Passing these five-trial scenarios does not establish correctness across all catalog items, prices, platforms, sizes, or missing brands. Future evaluation should include varied listings; I preserved the original targets for this submission.
+- **Some requirements remain prompt-based.** There is no hard word-count validator or factual-caption validator. These tests checked the stated price/platform criterion, not every unsupported claim. Empty model responses can still raise `ValueError`; only `ModelUnavailable` received the new handlers.
+
+## How I Used AI: Unit 4
+
+I used ChatGPT to help write the MCP wrapper, connect the client call, fix indentation, add error handlers and traces, prepare scenarios, and write the evaluation scripts. It also suggested the 120-word prompt change and helped draft the README. Some assistance came as complete replacement files.
+
+I ran the commands locally and shared the outputs and reports for review. The first timer missed command startup. I kept those reports and repeated both phases with command-level timing. The final results use the actual captions, item IDs, elapsed times, and error messages. I kept the failed trials and original targets.
