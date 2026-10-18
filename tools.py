@@ -13,12 +13,7 @@ def search_listings(
     size: str | None = None,
     max_price: float | None = None,
 ) -> list[dict]:
-    """
-    Search listings by keyword overlap, optional size, and maximum price.
-
-    Returns matching listing dictionaries ranked by keyword overlap.
-    Returns an empty list when nothing matches.
-    """
+    """Return listings ranked by keyword overlap, or [] if none match."""
     listings = load_listings()
     keywords = set(re.findall(r"\w+", description.casefold()))
 
@@ -55,7 +50,6 @@ def search_listings(
         listing_keywords = set(
             re.findall(r"\w+", searchable_text.casefold())
         )
-
         score = len(keywords & listing_keywords)
 
         if score > 0:
@@ -70,12 +64,7 @@ def search_listings(
 
 
 def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
-    """
-    Suggest one or two outfits for the selected item.
-
-    With an empty wardrobe, provide general styling advice without claiming
-    the user owns the suggested pieces.
-    """
+    """Suggest outfits, using general advice when the wardrobe is empty."""
     items = wardrobe["items"]
 
     if not items:
@@ -118,11 +107,7 @@ def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
 
 
 def create_fit_card(outfit: str, new_item: dict) -> str:
-    """
-    Write a two-to-four sentence caption about the selected find.
-
-    Return an actionable message when outfit advice is missing.
-    """
+    """Write a short caption including the item's price and platform."""
     if not outfit.strip():
         return (
             "Cannot create a fit card because outfit advice is missing. "
